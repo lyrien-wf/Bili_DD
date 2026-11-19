@@ -15,6 +15,7 @@
     "typescript/no-unsafe-declaration-merging": "error",
     "typescript/no-extra-non-null-assertion": "error"
   },
+  "ignorePatterns": ["dev_doc/**"],
   "env": {
     "builtin": true,
     "browser": true

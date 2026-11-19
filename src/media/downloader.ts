@@ -251,7 +251,7 @@ export async function downloadAudio(
   const isFlac = audio.codec?.toLowerCase().includes('flac') || audio.qualityDesc?.includes('FLAC');
   const ext = isFlac ? 'flac' : 'm4a';
   const mimeType = isFlac ? 'audio/flac' : 'audio/mp4';
-  const filename = `${title}_${audio.name}.${ext}`;
+  const filename = `${title}.${ext}`;
   const audioUrls = [audio.baseUrl, ...(audio.backupUrl || [])].filter(Boolean);
 
   logger.info('Downloader', `开始下载音频轨: ${filename}`, null, finalTraceId);

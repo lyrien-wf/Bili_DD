@@ -4,6 +4,7 @@
 
 import { fetchMediaPlayStreams, fetchVideoPages, getVideoTitle } from '../api/bilibili';
 import { downloadAudio, downloadAndMuxMp4 } from './downloader';
+import { pickBestAudio, pickHighestQualityVideo } from './selection';
 import { logger } from '../utils/logger';
 import { getErrorMessage, isAbortError } from '../utils/error';
 import {
@@ -19,25 +20,25 @@ export interface BatchDownloadOptions {
 }
 
 /**
- * 批量下载全集最低质量音频轨 (极速提取音频/省流播客) - 支持多分 P
+ * 批量下载全集音频轨 - 支持多分 P
  */
-export async function batchDownloadAllLowestAudios(
+export async function batchDownloadAllAudios(
   bvid: string,
   pages: VideoPageItem[],
   onTaskAdd: (task: DownloadTask) => void,
   onTaskUpdate: (id: string, partial: Partial<DownloadTask>) => void,
-  traceId = '全集最低音质',
+  traceId = '全集音频',
   signal?: AbortSignal,
   options?: BatchDownloadOptions
 ): Promise<void> {
   const mainTitle = getVideoTitle();
   const total = pages.length;
-  logger.info('BatchDownload', `开始批量下载全集最低质量音频: 共 ${total} 集`, { bvid }, traceId);
+  logger.info('BatchDownload', `开始批量下载全集音频: 共 ${total} 集`, { bvid }, traceId);
 
   // 1. 预先向全局任务队列注册所有分 P 任务（全部置为 pending 排队中，防止悬浮球频繁跳闪“全部完成”）
   for (const page of pages) {
     const taskId = `batch_audio_${bvid}_${page.cid}`;
-    const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (最低音质)`;
+    const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (音频)`;
     onTaskAdd({
       id: taskId,
       type: 'audio',
@@ -85,19 +86,23 @@ export async function batchDownloadAllLowestAudios(
         continue;
       }
 
-      // 选取带宽最低的音频轨 (64K 基础音质)
-      const lowestAudio = [...mediaData.audios].sort((a, b) => a.bandwidth - b.bandwidth)[0] || mediaData.audios[mediaData.audios.length - 1];
+      // 自动匹配一条可播放的音轨，不依赖接口返回顺序
+      const audio = pickBestAudio(mediaData.audios);
+      if (!audio) {
+        onTaskUpdate(taskId, { status: 'error', message: '未获取到可用音频流' });
+        continue;
+      }
 
       onTaskUpdate(taskId, {
         status: 'downloading_audio',
         progress: 0,
-        message: `准备下载 P${page.page} 音频 (${lowestAudio.name})...`,
+        message: `准备下载 P${page.page} 音频 (${audio.name})...`,
       });
 
       if (options?.externalDownloader) {
         const epUrl = typeof location !== 'undefined' ? `${location.origin}/video/${bvid}?p=${page.page}` : undefined;
         const sources = buildMediaDownloadSources({
-          audio: lowestAudio,
+          audio,
           title: pageTitle,
           downloadPage: epUrl,
         });
@@ -120,7 +125,7 @@ export async function batchDownloadAllLowestAudios(
 
       await downloadAudio(
         pageTitle,
-        lowestAudio,
+        audio,
         (prog) => {
           onTaskUpdate(taskId, {
             status: prog.status,
@@ -129,7 +134,7 @@ export async function batchDownloadAllLowestAudios(
             message: prog.message,
           });
         },
-        `P${page.page}-最低音频`,
+        `P${page.page}-音频`,
         signal
       );
     } catch (err: unknown) {
@@ -154,25 +159,25 @@ export async function batchDownloadAllLowestAudios(
 }
 
 /**
- * 批量下载全集最高质量视频 (双轨并发并无损封装为含音频的 MP4) - 支持多分 P
+ * 批量下载全集视频 (双轨并发并无损封装为含音频的 MP4) - 支持多分 P
  */
-export async function batchDownloadAllHighestVideos(
+export async function batchDownloadAllVideos(
   bvid: string,
   pages: VideoPageItem[],
   onTaskAdd: (task: DownloadTask) => void,
   onTaskUpdate: (id: string, partial: Partial<DownloadTask>) => void,
-  traceId = '全集最高画质',
+  traceId = '全集视频',
   signal?: AbortSignal,
   options?: BatchDownloadOptions
 ): Promise<void> {
   const mainTitle = getVideoTitle();
   const total = pages.length;
-  logger.info('BatchDownload', `开始批量下载全集最高质量视频 (含音频封装): 共 ${total} 集`, { bvid }, traceId);
+  logger.info('BatchDownload', `开始批量下载全集视频 (含音频封装): 共 ${total} 集`, { bvid }, traceId);
 
   // 1. 预先向全局任务队列注册所有分 P 任务（全部置为 pending 排队中）
   for (const page of pages) {
     const taskId = `batch_video_${bvid}_${page.cid}`;
-    const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (最高画质)`;
+    const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (视频)`;
     onTaskAdd({
       id: taskId,
       type: 'video',
@@ -221,22 +226,22 @@ export async function batchDownloadAllHighestVideos(
       }
 
       // 选取最高清晰度视频流与高保真音频流
-      const highestVideo = mediaData.videos[0];
-      const bestAudio = mediaData.audios[0];
-      const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (${highestVideo.qualityName})`;
+      const video = pickHighestQualityVideo(mediaData.videos)!;
+      const audio = pickBestAudio(mediaData.audios);
+      const taskTitle = `P${page.page}: ${page.part || `第${page.page}集`} (${video.qualityName})`;
 
       onTaskUpdate(taskId, {
         title: taskTitle,
         status: 'downloading_video',
         progress: 0,
-        message: `准备下载并合成 P${page.page} (${highestVideo.qualityName})...`,
+        message: `准备下载并合成 P${page.page} (${video.qualityName})...`,
       });
 
       if (options?.externalDownloader) {
         const epUrl = typeof location !== 'undefined' ? `${location.origin}/video/${bvid}?p=${page.page}` : undefined;
         const sources = buildMediaDownloadSources({
-          video: highestVideo,
-          audio: bestAudio,
+          video,
+          audio,
           title: pageTitle,
           downloadPage: epUrl,
         });
@@ -259,8 +264,8 @@ export async function batchDownloadAllHighestVideos(
 
       await downloadAndMuxMp4(
         pageTitle,
-        highestVideo,
-        bestAudio,
+        video,
+        audio,
         (prog) => {
           onTaskUpdate(taskId, {
             status: prog.status,
@@ -269,7 +274,7 @@ export async function batchDownloadAllHighestVideos(
             message: prog.message,
           });
         },
-        `P${page.page}-${highestVideo.codecName}`,
+        `P${page.page}-${video.codecName}`,
         signal
       );
 
@@ -297,25 +302,25 @@ export async function batchDownloadAllHighestVideos(
 }
 
 /**
- * 批量下载合集/系列 (Season/Series) 全部剧集最高画质
+ * 批量下载合集/系列 (Season/Series) 全部剧集视频
  */
-export async function batchDownloadSeasonHighestVideos(
+export async function batchDownloadSeasonVideos(
   seasonTitle: string,
   episodes: SeasonEpisodeItem[],
   onTaskAdd: (task: DownloadTask) => void,
   onTaskUpdate: (id: string, partial: Partial<DownloadTask>) => void,
-  traceId = '合集最高画质',
+  traceId = '合集视频',
   signal?: AbortSignal,
   options?: BatchDownloadOptions
 ): Promise<void> {
   const safeSeasonTitle = seasonTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
   const total = episodes.length;
-  logger.info('BatchDownload', `开始批量下载合集全部最高画质: ${safeSeasonTitle} (共 ${total} 集)`, null, traceId);
+  logger.info('BatchDownload', `开始批量下载合集全部视频: ${safeSeasonTitle} (共 ${total} 集)`, null, traceId);
 
   // 1. 预先向全局任务队列注册所有剧集任务
   for (const ep of episodes) {
     const taskId = `season_video_${ep.bvid}`;
-    const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (最高画质)`;
+    const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (视频)`;
     onTaskAdd({
       id: taskId,
       type: 'batch_video',
@@ -368,22 +373,22 @@ export async function batchDownloadSeasonHighestVideos(
         continue;
       }
 
-      const highestVideo = mediaData.videos[0];
-      const bestAudio = mediaData.audios[0];
-      const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (${highestVideo.qualityName})`;
+      const video = pickHighestQualityVideo(mediaData.videos)!;
+      const audio = pickBestAudio(mediaData.audios);
+      const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (${video.qualityName})`;
 
       onTaskUpdate(taskId, {
         title: taskTitle,
         status: 'downloading_video',
         progress: 0,
-        message: `准备下载并合成第 ${ep.pageIndex} 集 (${highestVideo.qualityName})...`,
+        message: `准备下载并合成第 ${ep.pageIndex} 集 (${video.qualityName})...`,
       });
 
       if (options?.externalDownloader) {
         const epUrl = typeof location !== 'undefined' ? `${location.origin}/video/${ep.bvid}` : undefined;
         const sources = buildMediaDownloadSources({
-          video: highestVideo,
-          audio: bestAudio,
+          video,
+          audio,
           title: episodeFileName,
           downloadPage: epUrl,
         });
@@ -406,8 +411,8 @@ export async function batchDownloadSeasonHighestVideos(
 
       await downloadAndMuxMp4(
         episodeFileName,
-        highestVideo,
-        bestAudio,
+        video,
+        audio,
         (prog) => {
           onTaskUpdate(taskId, {
             status: prog.status,
@@ -416,7 +421,7 @@ export async function batchDownloadSeasonHighestVideos(
             message: prog.message,
           });
         },
-        `合集第${ep.pageIndex}集-${highestVideo.codecName}`,
+        `合集第${ep.pageIndex}集-${video.codecName}`,
         signal
       );
 
@@ -444,14 +449,14 @@ export async function batchDownloadSeasonHighestVideos(
 }
 
 /**
- * 批量下载合集/系列 (Season/Series) 全部剧集最低质量音频轨 (极速提音频/省流播客)
+ * 批量下载合集/系列 (Season/Series) 全部剧集音频轨
  */
-export async function batchDownloadSeasonLowestAudios(
+export async function batchDownloadSeasonAudios(
   seasonTitle: string,
   episodes: SeasonEpisodeItem[],
   onTaskAdd: (task: DownloadTask) => void,
   onTaskUpdate: (id: string, partial: Partial<DownloadTask>) => void,
-  traceId = '合集最低音频',
+  traceId = '合集音频',
   signal?: AbortSignal,
   options?: BatchDownloadOptions
 ): Promise<void> {
@@ -462,7 +467,7 @@ export async function batchDownloadSeasonLowestAudios(
   // 1. 预先向全局任务队列注册所有剧集任务
   for (const ep of episodes) {
     const taskId = `season_audio_${ep.bvid}`;
-    const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (最低音质)`;
+    const taskTitle = `[合集 ${ep.pageIndex}/${total}] ${ep.title} (音频)`;
     onTaskAdd({
       id: taskId,
       type: 'batch_audio',
@@ -515,18 +520,22 @@ export async function batchDownloadSeasonLowestAudios(
         continue;
       }
 
-      const lowestAudio = [...mediaData.audios].sort((a, b) => a.bandwidth - b.bandwidth)[0] || mediaData.audios[mediaData.audios.length - 1];
+      const audio = pickBestAudio(mediaData.audios);
+      if (!audio) {
+        onTaskUpdate(taskId, { status: 'error', message: '未获取到可用音频流' });
+        continue;
+      }
 
       onTaskUpdate(taskId, {
         status: 'downloading_audio',
         progress: 0,
-        message: `准备下载第 ${ep.pageIndex} 集音频 (${lowestAudio.name})...`,
+        message: `准备下载第 ${ep.pageIndex} 集音频 (${audio.name})...`,
       });
 
       if (options?.externalDownloader) {
         const epUrl = typeof location !== 'undefined' ? `${location.origin}/video/${ep.bvid}` : undefined;
         const sources = buildMediaDownloadSources({
-          audio: lowestAudio,
+          audio,
           title: episodeFileName,
           downloadPage: epUrl,
         });
@@ -549,7 +558,7 @@ export async function batchDownloadSeasonLowestAudios(
 
       await downloadAudio(
         episodeFileName,
-        lowestAudio,
+        audio,
         (prog) => {
           onTaskUpdate(taskId, {
             status: prog.status,

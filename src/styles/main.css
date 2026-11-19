@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* 本地开发文档不参与 CSS 扫描（该目录同样被 .gitignore 忽略） */
+@source not "../../dev_doc";
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {

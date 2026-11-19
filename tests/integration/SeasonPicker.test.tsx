@@ -29,7 +29,7 @@ describe('SeasonPicker Integration Tests', () => {
     );
 
     expect(screen.getByTitle('全栈架构师修炼指南')).toBeInTheDocument();
-    expect(screen.getByText('全集最高画质')).toBeInTheDocument();
+    expect(screen.getByText('全集视频')).toBeInTheDocument();
     expect(screen.getByText('全集音频')).toBeInTheDocument();
     expect(screen.getByText('全集字幕')).toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe('SeasonPicker Integration Tests', () => {
       />
     );
 
-    fireEvent.click(screen.getByText('全集最高画质'));
+    fireEvent.click(screen.getByText('全集视频'));
     expect(onDownloadSeasonVideos).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByText('全集音频'));

@@ -20,10 +20,10 @@ vi.mock('../../src/media/downloader', () => ({
 }));
 
 import {
-  batchDownloadAllLowestAudios,
-  batchDownloadAllHighestVideos,
-  batchDownloadSeasonHighestVideos,
-  batchDownloadSeasonLowestAudios,
+  batchDownloadAllAudios,
+  batchDownloadAllVideos,
+  batchDownloadSeasonVideos,
+  batchDownloadSeasonAudios,
 } from '../../src/media/batchDownloader';
 import { fetchMediaPlayStreams } from '../../src/api/bilibili';
 import { downloadAudio, downloadAndMuxMp4 } from '../../src/media/downloader';
@@ -38,8 +38,8 @@ describe('Batch Downloader Unit Tests', () => {
     vi.clearAllMocks();
   });
 
-  describe('batchDownloadAllLowestAudios', () => {
-    it('should register all tasks as pending and download lowest bitrate audio', async () => {
+  describe('batchDownloadAllAudios', () => {
+    it('should register all tasks as pending and download the auto-matched audio track', async () => {
       const addedTasks: DownloadTask[] = [];
       const updatedTasks: Record<string, Partial<DownloadTask>> = {};
 
@@ -57,18 +57,18 @@ describe('Batch Downloader Unit Tests', () => {
         duration: 120,
       });
 
-      await batchDownloadAllLowestAudios('BV1test411c7mD', mockPages, onTaskAdd, onTaskUpdate);
+      await batchDownloadAllAudios('BV1test411c7mD', mockPages, onTaskAdd, onTaskUpdate);
 
       // Verify tasks initially registered
       expect(addedTasks).toHaveLength(2);
       expect(addedTasks[0]?.status).toBe('pending');
       expect(addedTasks[1]?.status).toBe('pending');
 
-      // Verify downloadAudio was called with lowest audio stream (bandwidth 64000)
+      // Verify downloadAudio was called with the auto-matched audio stream (highest bandwidth AAC, 30280)
       expect(downloadAudio).toHaveBeenCalledTimes(2);
       const calledAudio = (downloadAudio as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
-      expect(calledAudio.bandwidth).toBe(64000);
-      expect(calledAudio.id).toBe(30216);
+      expect(calledAudio.bandwidth).toBe(320000);
+      expect(calledAudio.id).toBe(30280);
 
       // Verify tasks completed
       expect(updatedTasks['batch_audio_BV1test411c7mD_1001']?.status).toBe('completed');
@@ -82,7 +82,7 @@ describe('Batch Downloader Unit Tests', () => {
       const controller = new AbortController();
       controller.abort(); // already aborted
 
-      await batchDownloadAllLowestAudios(
+      await batchDownloadAllAudios(
         'BV1test411c7mD',
         mockPages,
         (t) => addedTasks.push(t),
@@ -97,7 +97,7 @@ describe('Batch Downloader Unit Tests', () => {
     });
   });
 
-  describe('batchDownloadAllHighestVideos', () => {
+  describe('batchDownloadAllVideos', () => {
     it('should select highest quality video and mux with best audio', async () => {
       const addedTasks: DownloadTask[] = [];
       const updatedTasks: Record<string, Partial<DownloadTask>> = {};
@@ -113,7 +113,7 @@ describe('Batch Downloader Unit Tests', () => {
         duration: 120,
       });
 
-      await batchDownloadAllHighestVideos(
+      await batchDownloadAllVideos(
         'BV1test411c7mD',
         [mockPages[0]!],
         (t) => addedTasks.push(t),
@@ -149,7 +149,7 @@ describe('Batch Downloader Unit Tests', () => {
         duration: 120,
       });
 
-      await batchDownloadSeasonHighestVideos(
+      await batchDownloadSeasonVideos(
         '合集系列名称',
         [mockSeasonEpisodes[0]!],
         (t) => addedTasks.push(t),
@@ -161,7 +161,7 @@ describe('Batch Downloader Unit Tests', () => {
       expect(customTitle).toBe('合集系列名称_第1集_合集第1话');
     });
 
-    it('should batch download season lowest audios with season naming format', async () => {
+    it('should batch download season audios with season naming format', async () => {
       const addedTasks: DownloadTask[] = [];
       const updatedTasks: Record<string, Partial<DownloadTask>> = {};
 
@@ -173,7 +173,7 @@ describe('Batch Downloader Unit Tests', () => {
         duration: 120,
       });
 
-      await batchDownloadSeasonLowestAudios(
+      await batchDownloadSeasonAudios(
         '合集系列名称',
         [mockSeasonEpisodes[1]!],
         (t) => addedTasks.push(t),
@@ -208,7 +208,7 @@ describe('Batch Downloader Unit Tests', () => {
         duration: 120,
       });
 
-      await batchDownloadSeasonHighestVideos(
+      await batchDownloadSeasonVideos(
         '合集系列名称',
         [mockSeasonEpisodes[0]!],
         (t) => addedTasks.push(t),

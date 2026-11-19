@@ -1,6 +1,7 @@
 import type { IExternalDownloader, DownloaderRuntimeOptions } from './types';
 import { abDownloadManager } from './abdm';
 import { aria2RpcDownloader } from './aria2Rpc';
+import { idmDownloader } from './idm';
 import { getDownloadSettings, type DownloadSettings } from '../utils/settings';
 
 /**
@@ -10,9 +11,10 @@ export class ExternalDownloaderRegistry {
   private downloaders = new Map<string, IExternalDownloader>();
 
   constructor() {
-    // 默认内置注册 AB Download Manager 与 Aria2 RPC
+    // 默认内置注册 AB Download Manager、Aria2 RPC 与 IDM 桥接
     this.register(abDownloadManager);
     this.register(aria2RpcDownloader);
+    this.register(idmDownloader);
   }
 
   /**

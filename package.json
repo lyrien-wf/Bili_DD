@@ -1,7 +1,7 @@
 {
   "name": "bili-dl",
   "private": true,
-  "version": "1.5.3",
+  "version": "1.8.0",
   "author": "SXP-Simon",
   "license": "MIT",
   "type": "module",
@@ -17,11 +17,9 @@
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "test:all": "vitest run && playwright test",
-    "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "prepare": "lefthook install"
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
     "lucide-react": "^1.16.0",
     "mp4box": "^0.5.3",
     "react": "^19.0.0",
@@ -38,10 +36,9 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^30.1.1",
-    "lefthook": "^2.1.14",
     "oxlint": "^1.86.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "vite": "^6.1.0",
     "vite-plugin-monkey": "^5.0.6",
     "vitest": "^5.0.3"

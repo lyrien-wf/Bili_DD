@@ -39,7 +39,9 @@ export function buildMediaDownloadSources(params: BuildMediaSourcesParams): Exte
     sources.push({
       url: videoUrls[0] || video.baseUrl,
       urls: videoUrls,
-      filename: `${safeTitle}_${video.qualityName}_${video.codecName}.m4s`,
+      // 用 .mp4 而不是 .m4s：DASH 分片本身就是 fragmented MP4，服务器也多以 video/mp4 返回。
+      // 若命名成 .m4s，IDM 会弹「扩展名与服务器文件类型不一致」的确认框。
+      filename: `${safeTitle}_视频.mp4`,
       type: 'video',
       qualityDesc: video.qualityName,
       downloadPage: pageUrl,
@@ -49,11 +51,14 @@ export function buildMediaDownloadSources(params: BuildMediaSourcesParams): Exte
 
   if (audio) {
     const audioUrls = getPrioritizedCdnUrls(audio.baseUrl, audio.backupUrl, currentSettings);
-    const ext = video ? 'm4s' : 'm4a';
+    const isFlac = (audio.codec || '').toLowerCase().includes('flac');
+    // 音频轨本身就是 MP4 容器里的 AAC，且部分 CDN 节点对音频也返回 video/mp4；
+    // 统一用 .mp4 可以避免 IDM 对每个文件弹「扩展名与服务器类型不一致」的确认框。
+    const audioExt = isFlac ? 'flac' : 'mp4';
     sources.push({
       url: audioUrls[0] || audio.baseUrl,
       urls: audioUrls,
-      filename: `${safeTitle}_${audio.name}.${ext}`,
+      filename: `${safeTitle}_音频.${audioExt}`,
       type: 'audio',
       qualityDesc: audio.name || audio.qualityDesc,
       downloadPage: pageUrl,
@@ -100,7 +105,7 @@ export async function dispatchExternalDownloadTask(params: DispatchTaskParams): 
     onTaskUpdate(taskId, {
       status: 'completed',
       progress: 100,
-      message: `已推送到 ${downloader.name}`,
+      message: res.message || `已推送到 ${downloader.name}`,
     });
   } else {
     onTaskUpdate(taskId, {

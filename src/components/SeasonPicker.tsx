@@ -101,7 +101,7 @@ export const SeasonPicker: React.FC<SeasonPickerProps> = ({
             <button
               onClick={onDownloadSeasonVideos}
               disabled={isSeasonActionActive}
-              title="一键下载本合集所有选集的最高画质并混流 MP4"
+              title="一键下载本合集所有选集并混流 MP4"
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all duration-150 active:scale-95 cursor-pointer shadow-2xs ${
                 isSeasonActionActive
                   ? 'bg-primary/30 text-emerald-950 dark:text-emerald-100 border-primary/50'
@@ -109,7 +109,7 @@ export const SeasonPicker: React.FC<SeasonPickerProps> = ({
               }`}
             >
               <Download className="w-3 h-3" strokeWidth={2.2} />
-              <span>全集最高画质</span>
+              <span>全集视频</span>
             </button>
           )}
 

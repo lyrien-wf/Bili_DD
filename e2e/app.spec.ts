@@ -247,13 +247,13 @@ test.describe('Bilibili Downloader Userscript E2E', () => {
     await floatBtn.click({ button: 'right' });
 
     // Verify quick action menu items appear
-    await expect(page.getByText('一键下载全部最高质量视频')).toBeVisible();
-    await expect(page.getByText('一键下载全部最低质量音频')).toBeVisible();
+    await expect(page.getByText('一键下载全部视频')).toBeVisible();
+    await expect(page.getByText('一键下载全部音频')).toBeVisible();
     await expect(page.getByText('一键下载全部字幕')).toBeVisible();
 
     // Close via Escape
     await page.keyboard.press('Escape');
-    await expect(page.getByText('一键下载全部最高质量视频')).not.toBeVisible();
+    await expect(page.getByText('一键下载全部视频')).not.toBeVisible();
   });
 });
 

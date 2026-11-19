@@ -26,5 +26,6 @@
     "noImplicitOverride": true,
     "types": ["vite/client", "vite-plugin-monkey/client", "node"]
   },
-  "include": ["src", "tests", "e2e"]
+  "include": ["src", "tests", "e2e"],
+  "exclude": ["node_modules", "dist", "dev_doc"]
 }

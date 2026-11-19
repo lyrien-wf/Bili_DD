@@ -1,4 +1,4 @@
-export type CategoryType = 'all' | 'video' | 'audio' | 'cover' | 'danmaku' | 'episodes' | 'season' | 'ai';
+export type CategoryType = 'all' | 'video' | 'cover' | 'danmaku' | 'episodes' | 'season';
 
 export interface VideoStreamItem {
   id: number;
@@ -78,7 +78,7 @@ export interface MediaResourceData {
   ugcSeason?: UgcSeasonData;
 }
 
-export type TaskType = 'video' | 'audio' | 'danmaku' | 'subtitle' | 'cover' | 'batch_subtitle' | 'batch_video' | 'batch_audio' | 'ai_transcribe';
+export type TaskType = 'video' | 'audio' | 'danmaku' | 'subtitle' | 'cover' | 'batch_subtitle' | 'batch_video' | 'batch_audio';
 
 export interface DownloadTask {
   id: string;

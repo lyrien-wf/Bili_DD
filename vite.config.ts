@@ -42,15 +42,6 @@ export default defineConfig({
           'xycdn.com',
           'edge.mountaintoys.cn',
           'mcdn.bilivideo.cn',
-          'huggingface.co',
-          'hf-mirror.com',
-          'hf.co',
-          'cdn-lfs.huggingface.co',
-          'cdn-lfs-us-1.huggingface.co',
-          'cdn-lfs.hf-mirror.com',
-          'jsdelivr.net',
-          'fastly.jsdelivr.net',
-          'unpkg.com',
           '127.0.0.1',
           'localhost',
           'self'
@@ -61,4 +52,10 @@ export default defineConfig({
       }
     }),
   ],
+  server: {
+    // 本地开发文档不参与项目：改笔记不触发 HMR / 依赖重载
+    watch: {
+      ignored: ['**/dev_doc/**'],
+    },
+  },
 });

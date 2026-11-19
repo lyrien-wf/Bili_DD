@@ -97,6 +97,21 @@ describe('DownloadModal Integration Tests', () => {
     expect(onDownloadVideo).toHaveBeenCalledWith(mockData.videos[0], undefined);
   });
 
+  it('should call onDownloadAudio when clicking "下载音频"', async () => {
+    const onDownloadAudio = vi.fn().mockResolvedValue(undefined);
+    await act(async () => {
+      render(<DownloadModal {...defaultProps} onDownloadAudio={onDownloadAudio} />);
+    });
+
+    const audioBtn = screen.getByRole('button', { name: /下载音频/ });
+    await act(async () => {
+      fireEvent.click(audioBtn);
+    });
+
+    expect(onDownloadAudio).toHaveBeenCalledTimes(1);
+    expect(onDownloadAudio).toHaveBeenCalledWith(mockData.audios[0]);
+  });
+
   it('should render dynamic external downloader button when onDownloadWithExternal is provided', async () => {
     const onDownloadWithExternal = vi.fn().mockResolvedValue(undefined);
     await act(async () => {

@@ -28,7 +28,7 @@ import { getErrorMessage } from '../utils/error';
 import { SeasonPicker } from './SeasonPicker';
 import { LogViewer } from './LogViewer';
 import { SettingsPanel } from './SettingsPanel';
-import { WhisperTranscriber } from './WhisperTranscriber';
+import { pickBestAudio } from '../media/selection';
 import { exportAria2Command } from '../media/aria2';
 import { fetchDanmakuAss } from '../media/danmaku';
 import { fetchSubtitleSrt } from '../media/subtitle';
@@ -45,8 +45,6 @@ interface DownloadModalProps {
   tasks?: DownloadTask[];
   onRemoveTask?: (id: string) => void;
   onClearCompleted?: () => void;
-  onRegisterTask?: (task: DownloadTask) => void;
-  onUpdateTaskProgress?: (id: string, partial: Partial<DownloadTask>) => void;
   onToggleDark: () => void;
   onClose: () => void;
   onDownloadVideo: (video: VideoStreamItem, audio?: AudioStreamItem) => void;
@@ -70,8 +68,6 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   tasks = [],
   onRemoveTask,
   onClearCompleted,
-  onRegisterTask,
-  onUpdateTaskProgress,
   onToggleDark,
   onClose,
   onDownloadVideo,
@@ -108,10 +104,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const tabs = [
     { key: 'all' as CategoryType, label: '全部' },
     { key: 'video' as CategoryType, label: '视频', badge: data.videos.length },
-    { key: 'audio' as CategoryType, label: '音频', badge: data.audios.length },
     { key: 'cover' as CategoryType, label: '封面' },
     { key: 'danmaku' as CategoryType, label: '弹幕/字幕', badge: data.subtitles.length + 1 },
-    { key: 'ai' as CategoryType, label: 'AI语音转写' },
   ];
 
   const handleCopyAiSummary = () => {
@@ -147,7 +141,13 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   };
 
-  const bestAudio = data.audios[0];
+  // 音频不再让用户逐条挑选：直接使用自动匹配的可播放音轨
+  const selectedAudio = pickBestAudio(data.audios);
+  const isAudioProcessing = Boolean(
+    activeActionKey === `audio_${selectedAudio?.id ?? ''}` ||
+      (selectedAudio &&
+        tasks?.some((t) => t.id === `audio_${selectedAudio.id}` && t.status !== 'completed' && t.status !== 'error'))
+  );
 
   return (
     <div
@@ -449,7 +449,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              exportAria2Command(data.title, v, bestAudio);
+                              exportAria2Command(data.title, v, selectedAudio);
                               onShowToast('Aria2 / curl 下载命令已复制到剪贴板', 'success');
                             }}
                             title="复制 Aria2 / curl / FFmpeg 多线程下载命令行"
@@ -493,13 +493,13 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                             onClick={async () => {
                               setActiveActionKey(`video_mux_${v.id}_${v.codecName}`);
                               try {
-                                await onDownloadVideo(v, bestAudio);
+                                await onDownloadVideo(v, selectedAudio);
                               } finally {
                                 setActiveActionKey(null);
                               }
                             }}
                             disabled={isAnyProcessing}
-                            title={bestAudio ? `一键混流：下载视频 + ${bestAudio.name}，封装为完整 MP4` : '下载完整 MP4 视频'}
+                            title="下载视频并封装为完整 MP4（音轨自动匹配，无需选择）"
                             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs border shadow-2xs active:scale-95 transition-all duration-200 cursor-pointer ${
                               isMuxProcessing
                                 ? 'bg-primary/40 text-emerald-950 dark:text-emerald-100 border-primary/60 cursor-wait'
@@ -524,7 +524,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                               onClick={async () => {
                                 setActiveActionKey(`video_ext_${v.id}_${v.codecName}`);
                                 try {
-                                  await onDownloadWithExternal?.(activeDownloader.id, v, bestAudio);
+                                  await onDownloadWithExternal?.(activeDownloader.id, v, selectedAudio);
                                 } finally {
                                   setActiveActionKey(null);
                                 }
@@ -542,93 +542,60 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     );
                   })}
 
-                {/* 2. 音频列表 */}
-                {(activeTab === 'all' || activeTab === 'audio') &&
-                  data.audios.map((a, idx) => {
-                    const isProcessing =
-                      (tasks && tasks.some((t) => t.id === `audio_${a.id}` && t.status !== 'completed' && t.status !== 'error')) ||
-                      activeActionKey === `audio_${a.id}`;
-                    return (
-                      <SpotlightCard
-                        key={a.id}
-                        style={{
-                          animation: 'staggerIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1) both',
-                          animationDelay: `${(activeTab === 'all' ? data.videos.length + idx : idx) * 28}ms`,
-                        }}
-                        className="flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/30 text-emerald-800 dark:text-emerald-300 border border-secondary/40 shadow-2xs group-hover:bg-primary/25 group-hover:text-emerald-950 dark:group-hover:text-emerald-100 group-hover:scale-105 group-hover:border-primary/50 transition-all duration-200">
-                            <Music className="w-4 h-4" strokeWidth={2.2} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-foreground tracking-tight">
-                                {a.name}
-                              </span>
-                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-md bg-secondary/35 text-secondary-foreground border border-secondary/50 font-bold">
-                                {a.qualityDesc}
-                              </span>
-                            </div>
-                            <span className="text-[11px] font-mono text-muted-foreground mt-0.5 block">
-                              文件大小: {a.sizeMB} MB
-                            </span>
-                          </div>
-                        </div>
+                {/* 2. 独立音频（不再让用户逐条选择音轨，直接下载自动匹配的那条） */}
+                {activeTab === 'all' && selectedAudio && (
+                  <SpotlightCard
+                    style={{
+                      animation: 'staggerIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1) both',
+                      animationDelay: `${data.videos.length * 28}ms`,
+                    }}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/30 text-emerald-800 dark:text-emerald-300 border border-secondary/40 shadow-2xs group-hover:bg-primary/25 group-hover:text-emerald-950 dark:group-hover:text-emerald-100 group-hover:scale-105 group-hover:border-primary/50 transition-all duration-200">
+                        <Music className="w-4 h-4" strokeWidth={2.2} />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-foreground tracking-tight block">
+                          独立音频
+                        </span>
+                        <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                          仅导出音频，保存为 .m4a 文件
+                        </span>
+                      </div>
+                    </div>
 
-                        <div className="flex items-center gap-1.5">
-                          {isExternalEnabled && (
-                            <button
-                              onClick={async () => {
-                                setActiveActionKey(`audio_ext_${a.id}`);
-                                try {
-                                  await onDownloadWithExternal?.(activeDownloader.id, undefined, a);
-                                } finally {
-                                  setActiveActionKey(null);
-                                }
-                              }}
-                              disabled={isProcessing}
-                              title={`发送音频至 ${activeDownloader.name} (桌面客户端持久化下载)`}
-                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-semibold border border-border/70 hover:border-primary/60 bg-muted/20 hover:bg-primary/10 text-foreground transition-all duration-200 cursor-pointer shadow-2xs"
-                            >
-                              <DownloadCloud className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300" strokeWidth={2.2} />
-                              <span className="text-[11px]">{activeDownloader.shortName || activeDownloader.name}</span>
-                            </button>
-                          )}
-
-                          <button
-                            onClick={async () => {
-                              setActiveActionKey(`audio_${a.id}`);
-                              try {
-                                await onDownloadAudio(a);
-                              } finally {
-                                setActiveActionKey(null);
-                              }
-                            }}
-                            disabled={isProcessing}
-                            title="单独提取并下载该独立音轨 (.m4a / .flac)"
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-semibold text-xs transition-all duration-200 active:scale-95 shadow-2xs cursor-pointer ${
-                              isProcessing
-                                ? 'bg-primary/40 text-emerald-950 dark:text-emerald-100 border-primary/60 cursor-wait'
-                                : 'bg-primary/20 hover:bg-primary text-emerald-950 dark:text-emerald-100 hover:text-primary-foreground border-primary/40 hover:border-primary hover:shadow-xs'
-                            }`}
-                          >
-                            {isProcessing ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-800 dark:text-emerald-200" strokeWidth={2.4} />
-                                <span>下载中...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Download className="w-3.5 h-3.5" strokeWidth={2.2} />
-                                <span>下载音频</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </SpotlightCard>
-                    );
-                  })}
+                    <button
+                      onClick={async () => {
+                        setActiveActionKey(`audio_${selectedAudio.id}`);
+                        try {
+                          await onDownloadAudio(selectedAudio);
+                        } finally {
+                          setActiveActionKey(null);
+                        }
+                      }}
+                      disabled={isAudioProcessing}
+                      title="只下载音频轨，不下载画面"
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-semibold text-xs transition-all duration-200 active:scale-95 shadow-2xs cursor-pointer ${
+                        isAudioProcessing
+                          ? 'bg-primary/40 text-emerald-950 dark:text-emerald-100 border-primary/60 cursor-wait'
+                          : 'bg-primary/20 hover:bg-primary text-emerald-950 dark:text-emerald-100 hover:text-primary-foreground border-primary/40 hover:border-primary hover:shadow-xs'
+                      }`}
+                    >
+                      {isAudioProcessing ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-800 dark:text-emerald-200" strokeWidth={2.4} />
+                          <span>下载中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" strokeWidth={2.2} />
+                          <span>下载音频</span>
+                        </>
+                      )}
+                    </button>
+                  </SpotlightCard>
+                )}
 
                 {/* 3. 封面 */}
                 {(activeTab === 'all' || activeTab === 'cover') && data.cover && (
@@ -891,21 +858,6 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                       </SpotlightCard>
                     )}
                   </>
-                )}
-
-                {/* 5. 本地 AI 语音转文字 (Whisper / WebGPU) */}
-                {(activeTab === 'all' || activeTab === 'danmaku' || activeTab === 'ai') && (
-                  <div className="pt-1">
-                    <WhisperTranscriber
-                      key={`${data.bvid}_${data.cid}`}
-                      cacheKey={`${data.bvid}_${data.cid}`}
-                      title={data.title}
-                      audios={data.audios}
-                      onShowToast={onShowToast}
-                      onRegisterTask={onRegisterTask}
-                      onUpdateTaskProgress={onUpdateTaskProgress}
-                    />
-                  </div>
                 )}
               </div>
             </div>

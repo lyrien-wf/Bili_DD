@@ -108,7 +108,7 @@ describe('Downloader Unit Tests', () => {
 
     expect(GM_download).toHaveBeenCalledTimes(1);
     const callArgs = (GM_download as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(callArgs.name).toMatch(/测试视频_320Kbps 高品质音轨\.m4a$/);
+    expect(callArgs.name).toMatch(/测试视频\.m4a$/);
 
     expect(onProgress).toHaveBeenCalledWith(
       expect.objectContaining({

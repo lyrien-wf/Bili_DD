@@ -23,14 +23,7 @@ import {
   AlertCircle,
   FolderPen,
   Plug,
-  Bot,
-  Cpu,
 } from 'lucide-react';
-import {
-  SUPPORTED_WHISPER_MODELS,
-  SUPPORTED_LANGUAGES,
-  checkWebGpuSupport,
-} from '../ai/whisper';
 import {
   getDownloadSettings,
   saveDownloadSettings,
@@ -45,14 +38,38 @@ interface SettingsPanelProps {
   onShowToast: (content: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+interface SettingsSwitchProps {
+  checked: boolean;
+  onChange: () => void;
+  label?: string;
+}
+
+/**
+ * 统一开关控件：
+ * 位移用 inline transform（不依赖 Tailwind 的 translate 变量，避免打包进 Shadow DOM 后失效），
+ * 左右各留 2px 内边距，视觉上不会贴边。
+ */
+const SettingsSwitch: React.FC<SettingsSwitchProps> = ({ checked, onChange, label }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={onChange}
+    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors duration-200 ease-out focus:outline-none ${
+      checked ? 'bg-primary' : 'bg-muted-foreground/30'
+    }`}
+  >
+    <span
+      className="pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200 ease-out"
+      style={{ transform: checked ? 'translateX(22px)' : 'translateX(2px)' }}
+    />
+  </button>
+);
+
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToast }) => {
   const [settings, setSettings] = useState<DownloadSettings>(() => getDownloadSettings());
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; ok?: boolean } | null>(null);
-  const [webGpuStatus, setWebGpuStatus] = useState<{ supported: boolean; adapterInfo?: string } | null>(null);
-
-  React.useEffect(() => {
-    checkWebGpuSupport().then(setWebGpuStatus);
-  }, []);
 
   const registeredDownloaders = externalDownloaderRegistry.getAll();
   const activeDownloader = externalDownloaderRegistry.getActive(settings.externalDownloaderId);
@@ -231,25 +248,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               <span className="font-semibold text-foreground">自动创建视频专属子文件夹</span>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              开启后在子目录下自动为每个视频/剧集建立以标题命名的独立文件夹，批量下载更整齐。
+              开启后在子目录下自动为每个视频/剧集建立以标题命名的独立文件夹，批量下载更整齐。对外部下载器（IDM / ABDM / Aria2）同样生效。
             </p>
           </div>
 
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.autoTitleFolder}
-            onClick={() => updateSetting('autoTitleFolder', !settings.autoTitleFolder)}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              settings.autoTitleFolder ? 'bg-primary' : 'bg-muted-foreground/30'
-            }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                settings.autoTitleFolder ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
+          <SettingsSwitch
+            checked={settings.autoTitleFolder}
+            onChange={() => updateSetting('autoTitleFolder', !settings.autoTitleFolder)}
+            label="自动创建视频专属子文件夹"
+          />
         </div>
 
         {/* 3. 每次下载前弹出保存位置确认 */}
@@ -260,25 +267,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               <span className="font-semibold text-foreground">每次下载前弹出「另存为」确认框</span>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              开启后每次下载触发系统原生文件选择弹窗，允许手动选择电脑任意磁盘盘符与路径。
+              开启后每次下载触发系统原生文件选择弹窗，允许手动选择电脑任意磁盘盘符与路径。对 IDM 等价于弹出 IDM 自己的「开始下载」对话框（可当场改目录/文件名）。
             </p>
           </div>
 
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.alwaysAskSaveAs}
-            onClick={() => updateSetting('alwaysAskSaveAs', !settings.alwaysAskSaveAs)}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              settings.alwaysAskSaveAs ? 'bg-primary' : 'bg-muted-foreground/30'
-            }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                settings.alwaysAskSaveAs ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
+          <SettingsSwitch
+            checked={settings.alwaysAskSaveAs}
+            onChange={() => updateSetting('alwaysAskSaveAs', !settings.alwaysAskSaveAs)}
+            label="每次下载前弹出另存为确认框"
+          />
         </div>
 
         {/* 4. CDN 智能调度与慢速自愈换源 */}
@@ -295,21 +292,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               </p>
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.enableCdnPriority}
-              onClick={() => updateSetting('enableCdnPriority', !settings.enableCdnPriority)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                settings.enableCdnPriority ? 'bg-primary' : 'bg-muted-foreground/30'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  settings.enableCdnPriority ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+            <SettingsSwitch
+              checked={settings.enableCdnPriority}
+              onChange={() => updateSetting('enableCdnPriority', !settings.enableCdnPriority)}
+              label="国内高速 CDN 节点智能优选"
+            />
           </div>
 
           {/* CDN 优先级顺序配置与展示 */}
@@ -415,21 +402,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               </p>
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.cdnAutoFailover}
-              onClick={() => updateSetting('cdnAutoFailover', !settings.cdnAutoFailover)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                settings.cdnAutoFailover ? 'bg-primary' : 'bg-muted-foreground/30'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  settings.cdnAutoFailover ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+            <SettingsSwitch
+              checked={settings.cdnAutoFailover}
+              onChange={() => updateSetting('cdnAutoFailover', !settings.cdnAutoFailover)}
+              label="分片传输慢速自愈换源"
+            />
           </div>
 
           {/* 慢速判定阈值选择 */}
@@ -552,25 +529,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               </p>
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.externalDownloaderEnabled}
-              onClick={() => {
+            <SettingsSwitch
+              checked={settings.externalDownloaderEnabled}
+              onChange={() => {
                 const nextVal = !settings.externalDownloaderEnabled;
                 updateSetting('externalDownloaderEnabled', nextVal);
                 updateSetting('abdmEnabled', nextVal);
               }}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                settings.externalDownloaderEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  settings.externalDownloaderEnabled ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+              label="启用外部持久化下载器"
+            />
           </div>
 
           {settings.externalDownloaderEnabled && (
@@ -690,7 +657,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
                 <div className="space-y-0.5 leading-relaxed">
                   <span className="font-semibold block">关于外部下载器文件格式的特别说明：</span>
                   <p className="text-[10.5px] text-amber-800/90 dark:text-amber-300/90">
-                    B站官方采用音视频分离的 DASH 流架构。外部下载器 (如 AB Download Manager、Aria2、Motrix) 仅负责网络分块下载，<strong>不会自动混流封装为 MP4/M4A</strong>，落盘的文件为原始 <code>.m4s</code> 视频/音频轨（主流播放器如 PotPlayer / VLC / mpv 支持直接拖入播放，或使用 ffmpeg 单条命令快速无损合并）。
+                    B站官方采用音视频分离的 DASH 流架构。外部下载器 (如 IDM、AB Download Manager、Aria2、Motrix) 仅负责网络分块下载，<strong>不会自动混流封装为 MP4/M4A</strong>，落盘的文件为分离的视频/音频轨（都保存为 <code>.mp4</code>，音频轨里只有声音；主流播放器如 PotPlayer / VLC / mpv 支持直接拖入播放，或使用 ffmpeg 单条命令快速无损合并）。
                   </p>
                   <p className="text-[10.5px] text-amber-800/90 dark:text-amber-300/90">
                     如需自动生成单文件完整 MP4（音画已在浏览器中封装完毕），请将默认下载引擎切换为<strong>「浏览器内置」</strong>。
@@ -699,176 +666,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onShowToa
               </div>
 
               <div className="text-[10.5px] text-muted-foreground/80 leading-relaxed">
-                提示：请确保电脑已安装并启动对应客户端（例如 AB Download Manager 或 Motrix/Aria2），且端口保持一致。
+                提示：请确保电脑已安装并启动对应客户端（IDM 需要先运行一次以注册 COM，并保持 <code>tools/idm-bridge.ps1</code> 桥接窗口开着；ABDM / Motrix 需要开启对应接口），且端口保持一致。
               </div>
             </div>
           )}
         </div>
 
-        {/* 7. 本地 AI 语音转文字 (Whisper / WebGPU 硬件加速) */}
-        <div className="p-3.5 rounded-2xl bg-muted/30 border border-border/70 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <Bot className="w-4 h-4 text-emerald-700 dark:text-emerald-300" strokeWidth={2.2} />
-                <span className="font-semibold text-foreground">本地 AI 语音转文字 (Whisper / WebGPU)</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                基于 Transformers.js + ONNX Runtime 纯前端本地推理，0 服务器成本，保护隐私不上传。
-              </p>
-            </div>
-
-            {webGpuStatus?.supported ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
-                <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                <span>WebGPU 已就绪</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono text-muted-foreground bg-muted border border-border/70">
-                <Cpu className="w-3 h-3" />
-                <span>CPU Wasm 兼容</span>
-              </span>
-            )}
-          </div>
-
-          <div className="pt-2 pl-6 space-y-3 border-t border-border/30">
-            {/* 默认 Whisper 模型 */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-muted-foreground font-medium">默认 Whisper 识别模型：</span>
-                <span className="text-[10px] text-muted-foreground font-mono">首次下载后浏览器永久 Cache 缓存</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {SUPPORTED_WHISPER_MODELS.map((model) => {
-                  const isSelected = (settings.whisperModel || 'onnx-community/whisper-tiny') === model.id;
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => updateSetting('whisperModel', model.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
-                        isSelected
-                          ? 'bg-primary/15 border-primary text-emerald-950 dark:text-emerald-100 shadow-2xs font-bold'
-                          : 'bg-background hover:bg-muted text-muted-foreground hover:text-foreground border-border/80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground">{model.name.split(' ')[0]}</span>
-                        <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-muted border border-border/60">
-                          ~{model.sizeMB}MB
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground/80 line-clamp-1">{model.desc}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 推理加速硬件引擎 */}
-            <div className="flex items-center justify-between gap-4 text-[11px] pt-1">
-              <div className="space-y-0.5">
-                <span className="text-muted-foreground font-medium">推理加速硬件设备：</span>
-                <span className="text-[10px] text-muted-foreground block">
-                  {webGpuStatus?.adapterInfo || '显卡 WebGPU 加速速度快 5-10 倍'}
-                </span>
-              </div>
-              <div className="flex items-center bg-background rounded-xl p-1 border border-border/80 shrink-0">
-                {(['auto', 'webgpu', 'wasm'] as const).map((dev) => (
-                  <button
-                    key={dev}
-                    type="button"
-                    onClick={() => updateSetting('whisperDevice', dev)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      (settings.whisperDevice || 'auto') === dev
-                        ? 'bg-primary text-primary-foreground shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {dev === 'auto' ? '自动探测' : dev === 'webgpu' ? 'WebGPU (显卡)' : 'Wasm (CPU)'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 模型下载镜像源 */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-muted-foreground font-medium">模型权重下载镜像源：</span>
-                <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-medium">国内网络推荐 hf-mirror</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { id: 'hf-mirror', label: 'hf-mirror.com (国内高速镜像 / 推荐)' },
-                  { id: 'huggingface', label: 'Hugging Face 官方 (海外)' },
-                  { id: 'custom', label: '自定义镜像 URL' },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => updateSetting('whisperMirror', m.id as 'hf-mirror' | 'huggingface' | 'custom')}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      (settings.whisperMirror || 'hf-mirror') === m.id
-                        ? 'bg-primary/20 text-emerald-950 dark:text-emerald-100 border-primary/60 shadow-2xs font-bold'
-                        : 'bg-background hover:bg-muted text-muted-foreground hover:text-foreground border-border/80'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-
-              {settings.whisperMirror === 'custom' && (
-                <div className="pt-1">
-                  <input
-                    type="text"
-                    value={settings.whisperCustomMirrorUrl || ''}
-                    onChange={(e) => updateSetting('whisperCustomMirrorUrl', e.target.value)}
-                    placeholder="请输入自定义镜像 Base URL (例如 https://hf-mirror.com/)"
-                    className="w-full px-3 py-1.5 rounded-xl bg-background border border-border/80 text-foreground font-mono text-xs focus:outline-none focus:border-primary shadow-2xs"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* 默认语言与时间戳开关 */}
-            <div className="flex items-center justify-between gap-4 text-[11px] pt-1">
-              <div className="space-y-0.5">
-                <span className="text-muted-foreground font-medium">默认识别语言：</span>
-                <select
-                  value={settings.whisperLanguage || 'chinese'}
-                  onChange={(e) => updateSetting('whisperLanguage', e.target.value)}
-                  className="mt-1 block px-2.5 py-1 rounded-xl bg-background border border-border/80 text-foreground text-xs font-semibold focus:outline-none focus:border-primary shadow-2xs cursor-pointer"
-                >
-                  {SUPPORTED_LANGUAGES.map((lang) => (
-                    <option key={lang.code} value={lang.code}>
-                      {lang.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-0.5 text-right">
-                <span className="text-muted-foreground font-medium block">生成 SRT 时间戳字幕：</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.whisperReturnTimestamps !== false}
-                  onClick={() => updateSetting('whisperReturnTimestamps', !(settings.whisperReturnTimestamps !== false))}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none mt-1 ${
-                    settings.whisperReturnTimestamps !== false ? 'bg-primary' : 'bg-muted-foreground/30'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                      settings.whisperReturnTimestamps !== false ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* 底部状态提示栏 (提供舒适的留白与重置控制) */}

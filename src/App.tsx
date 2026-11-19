@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Video, Music, FolderArchive, Film, Bot } from 'lucide-react';
+import { Video, Music, FolderArchive, Film } from 'lucide-react';
 import { FloatButton } from './components/FloatButton';
 import { DownloadModal } from './components/DownloadModal';
 import { QuickActionMenu } from './components/QuickActionMenu';
@@ -8,8 +8,8 @@ import { fetchCurrentMediaData, getVideoTitle, getBvidFromUrl } from './api/bili
 import { downloadAndMuxMp4, downloadAudio, saveBlobAsFile } from './media/downloader';
 import { fetchSubtitleSrt } from './media/subtitle';
 import { batchDetectAndDownloadSubtitles, batchDownloadSeasonSubtitlesZip } from './media/batchSubtitle';
-import { batchDownloadAllLowestAudios, batchDownloadAllHighestVideos, batchDownloadSeasonHighestVideos, batchDownloadSeasonLowestAudios } from './media/batchDownloader';
-import { startTranscriptionTask, abortTranscriptionTask, SUPPORTED_LANGUAGES } from './ai/whisper';
+import { batchDownloadAllAudios, batchDownloadAllVideos, batchDownloadSeasonVideos, batchDownloadSeasonAudios } from './media/batchDownloader';
+import { pickBestAudio, pickHighestQualityVideo } from './media/selection';
 import { logger } from './utils/logger';
 import { getErrorMessage, isAbortError } from './utils/error';
 import { getDownloadSettings, saveDownloadSettings } from './utils/settings';
@@ -44,10 +44,6 @@ export const App: React.FC = () => {
   const [downloadEngine, setDownloadEngine] = useState<'internal' | 'external'>(() => {
     const s = getDownloadSettings();
     return s.defaultDownloaderEngine || 'internal';
-  });
-  const [quickWhisperLang, setQuickWhisperLang] = useState<string>(() => {
-    const s = getDownloadSettings();
-    return s.whisperLanguage || 'chinese';
   });
   const activeControllers = useRef<Map<string, AbortController>>(new Map());
 
@@ -212,11 +208,6 @@ export const App: React.FC = () => {
   };
 
   const handleRemoveTask = (id: string) => {
-    // 若为本地语音转写任务，先触发 Whisper abort
-    if (id.startsWith('whisper_')) {
-      const cacheKey = id.replace('whisper_', '');
-      abortTranscriptionTask(cacheKey);
-    }
     // 若任务正在执行，先触发 Abort 取消断开底层连接与释放资源
     const controller = activeControllers.current.get(id);
     if (controller) {
@@ -619,8 +610,8 @@ export const App: React.FC = () => {
     }
   };
 
-  // 一键下载合集/系列 (Season) 全部剧集最低质量音频
-  const handleDownloadSeasonAudiosLowest = async (customData?: MediaResourceData) => {
+  // 一键下载合集/系列 (Season) 全部剧集音频
+  const handleDownloadSeasonAudios = async (customData?: MediaResourceData) => {
     const data = await getFreshMediaData(customData);
     if (!data?.ugcSeason) {
       showToast('未检测到当前视频属于合集/系列', 'warning');
@@ -643,7 +634,7 @@ export const App: React.FC = () => {
       cancelToast: '合集音频下载任务已取消',
       failPrefix: '合集音频下载失败',
       execute: (signal) =>
-        batchDownloadSeasonLowestAudios(
+        batchDownloadSeasonAudios(
           season.title,
           season.episodes,
           upsertTask,
@@ -655,8 +646,8 @@ export const App: React.FC = () => {
     });
   };
 
-  // 一键下载合集/系列 (Season) 全部剧集最高画质视频并合成 MP4
-  const handleDownloadSeasonVideosHighest = async (customData?: MediaResourceData) => {
+  // 一键下载合集/系列 (Season) 全部剧集视频并合成 MP4
+  const handleDownloadSeasonVideos = async (customData?: MediaResourceData) => {
     const data = await getFreshMediaData(customData);
     if (!data?.ugcSeason) {
       showToast('未检测到当前视频属于合集/系列', 'warning');
@@ -671,15 +662,15 @@ export const App: React.FC = () => {
     await runManagedTask({
       taskId: `season_videos_${season.id}`,
       startToast: isExternal
-        ? `正在向 ${downloader.name} 逐集推送合集全部 ${count} 集最高画质...`
-        : `已将合集全部 ${count} 集最高画质加入合成队列`,
+        ? `正在向 ${downloader.name} 逐集推送合集全部 ${count} 集视频...`
+        : `已将合集全部 ${count} 集视频加入合成队列`,
       successToast: isExternal
         ? `合集全部 ${count} 集视频已全部推送到 ${downloader.name}`
         : `合集全部 ${count} 集视频合成任务已完成`,
       cancelToast: '合集视频下载任务已取消',
       failPrefix: '合集视频合成失败',
       execute: (signal) =>
-        batchDownloadSeasonHighestVideos(
+        batchDownloadSeasonVideos(
           season.title,
           season.episodes,
           upsertTask,
@@ -691,7 +682,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleDownloadBatchAudiosLowest = async (customData?: MediaResourceData) => {
+  const handleDownloadBatchAudios = async (customData?: MediaResourceData) => {
     const data = await getFreshMediaData(customData);
     if (!data) {
       showToast('未能解析到视频资源', 'error');
@@ -702,13 +693,13 @@ export const App: React.FC = () => {
     const { downloader, port } = externalDownloaderRegistry.getActiveContext();
 
     if (data.pages.length <= 1) {
-      // 单 P 视频：根据下载引擎分流
-      const lowestAudio = [...data.audios].sort((a, b) => a.bandwidth - b.bandwidth)[0] || data.audios[data.audios.length - 1];
-      if (lowestAudio) {
+      // 单 P 视频：根据下载引擎分流（音轨由选择器自动匹配）
+      const audio = pickBestAudio(data.audios);
+      if (audio) {
         if (isExternal) {
-          await handleDownloadWithExternal(downloader, undefined, lowestAudio);
+          await handleDownloadWithExternal(downloader, undefined, audio);
         } else {
-          await handleDownloadAudio(lowestAudio, data.title);
+          await handleDownloadAudio(audio, data.title);
         }
       } else {
         showToast('未能获取到音频流', 'error');
@@ -721,14 +712,14 @@ export const App: React.FC = () => {
       taskId: `batch_audios_${data.bvid}`,
       startToast: isExternal
         ? `正在向 ${downloader.name} 逐集推送 ${count} 集音频...`
-        : `已将 ${count} 集最低音质音频加入下载队列`,
+        : `已将 ${count} 集音频加入下载队列`,
       successToast: isExternal
         ? `全集 ${count} P 音频已全部推送到 ${downloader.name}`
         : `全集 ${count} P 音频批量下载任务已完成`,
       cancelToast: '全集音频下载任务已取消',
       failPrefix: '批量音频下载失败',
       execute: (signal) =>
-        batchDownloadAllLowestAudios(
+        batchDownloadAllAudios(
           data.bvid,
           data.pages,
           upsertTask,
@@ -740,7 +731,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleDownloadBatchVideosHighest = async (customData?: MediaResourceData) => {
+  const handleDownloadBatchVideos = async (customData?: MediaResourceData) => {
     const data = await getFreshMediaData(customData);
     if (!data) {
       showToast('未能解析到视频资源', 'error');
@@ -751,9 +742,9 @@ export const App: React.FC = () => {
     const { downloader, port } = externalDownloaderRegistry.getActiveContext();
 
     if (data.pages.length <= 1) {
-      // 单 P 视频：根据下载引擎分流
-      const highestVideo = data.videos[0];
-      const bestAudio = data.audios[0];
+      // 单 P 视频：根据下载引擎分流（画质/音轨均由选择器按真实排序挑选，不依赖接口返回顺序）
+      const highestVideo = pickHighestQualityVideo(data.videos);
+      const bestAudio = pickBestAudio(data.audios);
       if (highestVideo) {
         if (isExternal) {
           await handleDownloadWithExternal(downloader, highestVideo, bestAudio);
@@ -770,15 +761,15 @@ export const App: React.FC = () => {
     await runManagedTask({
       taskId: `batch_videos_${data.bvid}`,
       startToast: isExternal
-        ? `正在向 ${downloader.name} 逐集推送 ${count} 集最高画质...`
-        : `已将 ${count} 集最高画质 MP4 加入合成队列`,
+        ? `正在向 ${downloader.name} 逐集推送 ${count} 集视频...`
+        : `已将 ${count} 集视频加入合成队列`,
       successToast: isExternal
         ? `全集 ${count} P 视频已成功全部推送到 ${downloader.name}`
         : `全集 ${count} P 视频批量合成任务已完成`,
       cancelToast: '全集视频下载任务已取消',
       failPrefix: '批量视频合成失败',
       execute: (signal) =>
-        batchDownloadAllHighestVideos(
+        batchDownloadAllVideos(
           data.bvid,
           data.pages,
           upsertTask,
@@ -788,105 +779,6 @@ export const App: React.FC = () => {
           isExternal ? { externalDownloader: downloader, externalPort: port } : undefined
         ),
     });
-  };
-
-  const handleSelectQuickWhisperLang = (lang: string) => {
-    setQuickWhisperLang(lang);
-    const s = getDownloadSettings();
-    s.whisperLanguage = lang;
-    saveDownloadSettings(s);
-    const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === lang);
-    showToast(`默认转写语言已设置为: ${langObj?.name || lang}`, 'info');
-  };
-
-  /**
-   * 快捷操作：当前视频纯前端 WebGPU/Wasm 自动语音转写并自动下载保存为 .txt
-   */
-  const handleQuickWhisperTranscribeAndDownloadTxt = async (customData?: MediaResourceData) => {
-    const data = await getFreshMediaData(customData);
-    if (!data) {
-      showToast('未能解析到视频资源，请确认处于播放页面', 'error');
-      return;
-    }
-
-    const sortedAudios = [...data.audios].sort((a, b) => a.bandwidth - b.bandwidth);
-    const targetAudio = sortedAudios[0] || data.audios[0];
-    if (!targetAudio) {
-      showToast('未能获取到音频流，无法进行本地语音识别', 'error');
-      return;
-    }
-
-    const settings = getDownloadSettings();
-    const model = settings.whisperModel || 'onnx-community/whisper-tiny';
-    const lang = quickWhisperLang || settings.whisperLanguage || 'chinese';
-    const cacheKey = `${data.bvid}_${data.cid}`;
-    const taskId = `whisper_${cacheKey}`;
-    const taskTitle = `[本地AI转写] ${data.title}`;
-    const traceId = `Whisper-Quick-${data.cid}`;
-
-    const controller = new AbortController();
-    activeControllers.current.set(taskId, controller);
-
-    upsertTask({
-      id: taskId,
-      type: 'ai_transcribe',
-      title: taskTitle,
-      status: 'pending',
-      progress: 0,
-      message: '正在准备本地 AI 语音转写...',
-      timestamp: Date.now(),
-    });
-
-    showToast('已启动本地 AI 语音转写，将在转录完成后自动下载为 TXT', 'info');
-
-    try {
-      const res = await startTranscriptionTask(cacheKey, targetAudio, {
-        model,
-        language: lang,
-        returnTimestamps: true,
-        traceId,
-        onProgress: (p) => {
-          const isWaiting = p.message.includes('排队');
-          updateTaskProgress(taskId, {
-            status: isWaiting ? 'pending' : p.stage === 'completed' ? 'completed' : p.stage === 'error' ? 'error' : 'downloading_audio',
-            progress: p.progress,
-            message: p.message,
-          });
-        },
-      });
-
-      if (!controller.signal.aborted && res.text) {
-        const cleanTitle = (data.title || 'bilibili_video').replace(/[\\/:*?"<>|]/g, '_');
-        const blob = new Blob([res.text], { type: 'text/plain;charset=utf-8' });
-        await saveBlobAsFile(blob, `${cleanTitle}-本地AI语音转写纯文本.txt`, data.title);
-
-        updateTaskProgress(taskId, {
-          status: 'completed',
-          progress: 100,
-          message: `转录完成: 共 ${res.text.length} 字 (已自动保存 TXT)`,
-        });
-
-        const metricStr = res.metrics ? ` (耗时 ${(res.metrics.totalElapsedMs / 1000).toFixed(1)}s, ${res.metrics.realtimeFactor}x 速)` : '';
-        showToast(`本地 AI 语音转写完成并已保存为 TXT！${metricStr}`, 'success');
-      }
-    } catch (err: unknown) {
-      if (controller.signal.aborted || isAbortError(err)) {
-        updateTaskProgress(taskId, {
-          status: 'cancelled',
-          message: '已手动取消语音转写',
-        });
-        showToast('语音转写任务已取消', 'info');
-      } else {
-        const msg = getErrorMessage(err);
-        updateTaskProgress(taskId, {
-          status: 'error',
-          message: `转录失败: ${msg}`,
-        });
-        showToast(`语音转写失败: ${msg}`, 'error');
-      }
-    } finally {
-      activeControllers.current.delete(taskId);
-    }
   };
 
   const handleFloatButtonContextMenu = (
@@ -975,8 +867,8 @@ export const App: React.FC = () => {
     }
 
     // 2. 组装媒体流并投递 (默认选择最高画质画面 + 最佳音质音轨，遵循配置的 CDN 优先级)
-    const video = targetVideo || currentMedia.videos[0];
-    const audio = targetAudio !== undefined ? targetAudio : (currentMedia.audios[0] || null);
+    const video = targetVideo || pickHighestQualityVideo(currentMedia.videos);
+    const audio = targetAudio !== undefined ? targetAudio : (pickBestAudio(currentMedia.audios) || null);
     const cleanTitle = (currentMedia.title || 'bilibili_video').replace(/[\\/:*?"<>|]/g, '_');
     const sources = buildMediaDownloadSources({ video, audio, title: cleanTitle, settings });
 
@@ -1008,9 +900,6 @@ export const App: React.FC = () => {
   const isBatchVideosRunning = tasks.some(
     (t) => (t.id.startsWith('batch_videos_') || t.id.startsWith('batch_video_') || t.id.startsWith('season_video_') || t.id.startsWith('season_videos_')) && t.status !== 'completed' && t.status !== 'error' && t.status !== 'cancelled'
   );
-  const isAiTranscribeRunning = tasks.some(
-    (t) => t.id.startsWith('whisper_') && t.status !== 'completed' && t.status !== 'error' && t.status !== 'cancelled'
-  );
 
   // 计算当前右键菜单的目标上下文头信息
   const currentBvid = getBvidFromUrl();
@@ -1033,19 +922,6 @@ export const App: React.FC = () => {
   const isExternal = downloadEngine === 'external';
   const { downloader: activeExtDownloader } = externalDownloaderRegistry.getActiveContext();
 
-  const aiTranscribeAction: QuickActionItem = {
-    id: 'quick_ai_whisper_txt',
-    icon: <Bot className="w-4 h-4 text-emerald-800 dark:text-emerald-300" strokeWidth={2.2} />,
-    label: '自动转写并下载为 TXT',
-    loading: isAiTranscribeRunning,
-    description: '纯本地 WebGPU 显卡异步转写，自动下载保存纯文本',
-    badge: 'AI·TXT',
-    onClick: async () => {
-      logger.info('QuickAction', '触发快捷操作: 自动转写并下载为 TXT');
-      await handleQuickWhisperTranscribeAndDownloadTxt();
-    },
-  };
-
   // 抽象与配置右键快捷操作列表 (根据是否为合集自动呈现最匹配的选项，通过下载引擎开关无缝分流浏览器或外部下载器)
   const quickActions: QuickActionItem[] = hasUgcSeason
     ? [
@@ -1057,12 +933,12 @@ export const App: React.FC = () => {
               : `一键下载合集全部视频 (${seasonEpisodeCount}集)`,
             loading: isBatchVideosRunning,
             description: isExternal
-              ? `批量推送到 ${activeExtDownloader.name} 独立持久化下载全集最高画质 MP4`
-              : `批量下载合集《${mediaData?.ugcSeason?.title}》全部最高画质 MP4`,
+              ? `批量推送到 ${activeExtDownloader.name} 独立持久化下载全集 MP4`
+              : `批量下载合集《${mediaData?.ugcSeason?.title}》全部 MP4`,
             badge: isExternal ? (activeExtDownloader.shortName || '外部') : '合集全量',
             onClick: async () => {
-              logger.info('QuickAction', '触发快捷操作: 一键下载/推送合集全部最高画质');
-              await handleDownloadSeasonVideosHighest();
+              logger.info('QuickAction', '触发快捷操作: 一键下载/推送合集全部视频');
+              await handleDownloadSeasonVideos();
             },
           },
           {
@@ -1073,12 +949,12 @@ export const App: React.FC = () => {
               : `一键提取合集全部音频 (${seasonEpisodeCount}集)`,
             loading: isBatchAudiosRunning,
             description: isExternal
-              ? `批量推送到 ${activeExtDownloader.name} 独立持久化下载全集省流音频`
-              : `批量抽取合集《${mediaData?.ugcSeason?.title}》全集省流音频`,
+              ? `批量推送到 ${activeExtDownloader.name} 独立持久化下载全集音频`
+              : `批量抽取合集《${mediaData?.ugcSeason?.title}》全集音频`,
             badge: isExternal ? (activeExtDownloader.shortName || '外部') : '合集音频',
             onClick: async () => {
               logger.info('QuickAction', '触发快捷操作: 一键提取/推送合集全部音频');
-              await handleDownloadSeasonAudiosLowest();
+              await handleDownloadSeasonAudios();
             },
           },
           {
@@ -1093,43 +969,42 @@ export const App: React.FC = () => {
               await handleDownloadSeasonSubtitles();
             },
           },
-          aiTranscribeAction,
         ]
     : [
           {
             id: 'quick_batch_videos_highest',
             icon: <Video className="w-4 h-4 text-emerald-800 dark:text-emerald-300" strokeWidth={2.2} />,
             label: isExternal
-              ? `一键推送到 ${activeExtDownloader.shortName || '外部'}: 全部最高质量视频`
-              : '一键下载全部最高质量视频',
+              ? `一键推送到 ${activeExtDownloader.shortName || '外部'}: 全部视频`
+              : '一键下载全部视频',
             loading: isBatchVideosRunning,
             description: isExternal
               ? `推送到 ${activeExtDownloader.name} 独立持久化下载，不惧切换 Tab`
               : mediaData && mediaData.pages.length > 1
               ? `批量下载全集 ${mediaData.pages.length} P 并无损封装含音频 MP4`
-              : '下载最高画质视频并合成含音频 MP4',
+              : '下载视频并合成含音频 MP4',
             badge: isExternal ? (activeExtDownloader.shortName || '外部') : 'MP4',
             onClick: async () => {
-              logger.info('QuickAction', '触发快捷操作: 一键下载/推送全部最高质量视频');
-              await handleDownloadBatchVideosHighest();
+              logger.info('QuickAction', '触发快捷操作: 一键下载/推送全部视频');
+              await handleDownloadBatchVideos();
             },
           },
           {
             id: 'quick_batch_audios_lowest',
             icon: <Music className="w-4 h-4 text-emerald-800 dark:text-emerald-300" strokeWidth={2.2} />,
             label: isExternal
-              ? `一键推送到 ${activeExtDownloader.shortName || '外部'}: 全部最低质量音频`
-              : '一键下载全部最低质量音频',
+              ? `一键推送到 ${activeExtDownloader.shortName || '外部'}: 全部音频`
+              : '一键下载全部音频',
             loading: isBatchAudiosRunning,
             description: isExternal
               ? `推送到 ${activeExtDownloader.name} 独立持久化提取全集音频`
               : mediaData && mediaData.pages.length > 1
-              ? `批量提取全集 ${mediaData.pages.length} P 最低码率音频 (省流)`
-              : '提取当前视频最低码率独立音轨 (.m4a)',
-            badge: isExternal ? (activeExtDownloader.shortName || '外部') : '64K',
+              ? `批量提取全集 ${mediaData.pages.length} P 的音频`
+              : '提取当前视频的独立音轨 (.m4a)',
+            badge: isExternal ? (activeExtDownloader.shortName || '外部') : 'M4A',
             onClick: async () => {
-              logger.info('QuickAction', '触发快捷操作: 一键下载/推送全部最低质量音频');
-              await handleDownloadBatchAudiosLowest();
+              logger.info('QuickAction', '触发快捷操作: 一键下载/推送全部音频');
+              await handleDownloadBatchAudios();
             },
           },
           {
@@ -1146,7 +1021,6 @@ export const App: React.FC = () => {
               await handleDownloadBatchSubtitles();
             },
           },
-          aiTranscribeAction,
         ];
 
   return (
@@ -1170,9 +1044,6 @@ export const App: React.FC = () => {
         activeDownloaderShortName={activeExtDownloader.shortName || activeExtDownloader.name}
         isExternalAvailable={Boolean(downloaderStatus?.isAvailable)}
         isCheckingExternal={isCheckingDownloader}
-        languages={SUPPORTED_LANGUAGES}
-        selectedLanguage={quickWhisperLang}
-        onSelectLanguage={handleSelectQuickWhisperLang}
       />
       {isModalOpen && mediaData && (
         <DownloadModal
@@ -1183,8 +1054,6 @@ export const App: React.FC = () => {
           tasks={tasks}
           onRemoveTask={handleRemoveTask}
           onClearCompleted={handleClearCompletedTasks}
-          onRegisterTask={upsertTask}
-          onUpdateTaskProgress={updateTaskProgress}
           onToggleDark={handleToggleDark}
           onClose={() => {
             setIsModalOpen(false);
@@ -1193,8 +1062,8 @@ export const App: React.FC = () => {
           onDownloadAudio={handleDownloadAudio}
           onDownloadWithExternal={handleDownloadWithExternal}
           onDownloadBatchSubtitles={handleDownloadBatchSubtitles}
-          onDownloadSeasonVideos={handleDownloadSeasonVideosHighest}
-          onDownloadSeasonAudios={handleDownloadSeasonAudiosLowest}
+          onDownloadSeasonVideos={handleDownloadSeasonVideos}
+          onDownloadSeasonAudios={handleDownloadSeasonAudios}
           onDownloadSeasonSubtitles={handleDownloadSeasonSubtitles}
           onSelectEpisode={handleSelectEpisode}
           onSelectSeasonEpisode={handleSelectSeasonEpisode}
